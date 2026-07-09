@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-gateway · live transcription</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0a0b0f;
+    --fg: 255 255 255;               /* primary, used as rgb() with alpha */
+    --shimmer: linear-gradient(90deg,
+      rgb(var(--fg) / 0.12) 0%, rgb(var(--fg) / 0.12) 33%,
+      #379B94 38%, #3E7DD2 44%, #5F70C8 50%, #7D55C3 56%, #B14FC8 62%,
+      rgb(var(--fg) / 0.12) 67%, rgb(var(--fg) / 0.12) 100%);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: var(--bg); color: rgb(var(--fg));
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    padding: 32px 20px;
+  }
+  .stage { width: 100%; max-width: 720px; flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 28px; }
+  .hidden { display: none !important; }
+
+  /* --- pill buttons --- */
+  .pill { position: relative; display: inline-flex; border-radius: 9999px; padding: 1px;
+    border: none; background: none; cursor: pointer; -webkit-appearance: none; }
+  .pill-inner { position: relative; z-index: 1; display: inline-flex; align-items: center;
+    gap: 8px; border-radius: 9999px; background: var(--bg); padding: 9px 18px;
+    font-size: 14px; font-weight: 500; color: rgb(var(--fg) / 0.8); transition: color .2s, border-color .2s; }
+  .pill:hover .pill-inner { color: rgb(var(--fg)); }
+  .pill svg { width: 16px; height: 16px; }
+
+  /* primary CTA: animated shimmer-gradient border */
+  .shimmer::before { content: ""; position: absolute; inset: 0; border-radius: 9999px;
+    background-image: var(--shimmer); background-size: 300% 100%;
+    animation: border-shimmer 6s linear infinite; }
+
+  /* secondary: faint static border */
+  .plain .pill-inner { border: 1px solid rgb(var(--fg) / 0.08); color: rgb(var(--fg) / 0.4); }
+  .plain:hover .pill-inner { border-color: rgb(var(--fg) / 0.15); color: rgb(var(--fg) / 0.6); }
+
+  /* stop: red glow */
+  .stop::before { content: ""; position: absolute; inset: 0; border-radius: 9999px;
+    background: rgba(239, 68, 68, 0.30); }
+  .stop .pill-inner { color: #f87171; }
+  .stop:hover .pill-inner { color: #fca5a5; }
+
+  @keyframes border-shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
+  @keyframes blur-in { from { opacity: 0; filter: blur(6px); } to { opacity: 1; filter: blur(0); } }
+
+  .btns { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+
+  /* --- transcript --- */
+  .textwrap { min-height: 180px; display: flex; align-items: center; justify-content: center; width: 100%; }
+  .hint { color: rgb(var(--fg) / 0.4); font-size: 17px; line-height: 1.7; max-width: 28rem;
+    text-align: center; margin: 0; animation: blur-in .5s ease; }
+  .hint.err { color: #fca5a5; }
+  .transcript { font-size: 23px; line-height: 1.6; max-width: 42rem; text-align: center; margin: 0;
+    animation: blur-in .4s ease; }
+  .committed { color: rgb(var(--fg)); }
+  .interim { color: rgb(var(--fg) / 0.45); }
+
+  .controls { display: flex; align-items: center; gap: 12px; min-height: 40px; }
+  .brand { position: fixed; top: 20px; left: 24px; font-size: 12px; letter-spacing: .3px;
+    color: rgb(var(--fg) / 0.35); }
+  .brand b { color: rgb(var(--fg) / 0.6); font-weight: 600; }
+  a { color: rgb(var(--fg) / 0.5); }
+
+  /* diarization */
+  .toggle { display: flex; align-items: center; gap: 8px; margin-top: 8px; cursor: pointer;
+    font-size: 13px; color: rgb(var(--fg) / 0.5); user-select: none; }
+  .toggle:hover { color: rgb(var(--fg) / 0.75); }
+  .toggle input { accent-color: #5f70c8; width: 15px; height: 15px; }
+  .urlrow { display: flex; gap: 8px; margin-top: 4px; width: 100%; max-width: 380px; }
+  .urlrow input { flex: 1; background: #0e1219; border: 1px solid rgb(var(--fg) / 0.1);
+    border-radius: 9999px; padding: 9px 16px; color: rgb(var(--fg)); font-size: 13px; outline: none; }
+  .urlrow input::placeholder { color: rgb(var(--fg) / 0.35); }
+  .urlrow input:focus { border-color: rgb(var(--fg) / 0.25); }
+  .trim { display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(var(--fg) / 0.45); }
+  .trim input { width: 84px; background: #0e1219; border: 1px solid rgb(var(--fg) / 0.1);
+    border-radius: 9999px; padding: 5px 12px; color: rgb(var(--fg)); font-size: 12px; outline: none; }
+  .trim input:focus { border-color: rgb(var(--fg) / 0.25); }
+  .trim input::placeholder { color: rgb(var(--fg) / 0.3); }
+  .textlink { margin-top: 10px; font-size: 13px; color: rgb(var(--fg) / 0.5);
+    text-decoration: none; border-bottom: 1px dashed rgb(var(--fg) / 0.2); padding-bottom: 1px; }
+  .textlink:hover { color: rgb(var(--fg) / 0.85); border-color: rgb(var(--fg) / 0.4); }
+  /* link view */
+  .linkview { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; max-width: 440px; }
+  .lv-title { margin: 0; font-size: 18px; font-weight: 600; }
+  .lv-url { width: 100%; background: #0e1219; border: 1px solid rgb(var(--fg) / 0.12);
+    border-radius: 12px; padding: 12px 16px; color: rgb(var(--fg)); font-size: 14px; outline: none; }
+  .lv-url:focus { border-color: rgb(var(--fg) / 0.28); }
+  .lv-url::placeholder { color: rgb(var(--fg) / 0.35); }
+  .lv-hint { margin: 0; font-size: 12px; color: rgb(var(--fg) / 0.4); text-align: center; }
+  .lv-actions { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 4px; }
+  .segs { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 42rem; text-align: left; }
+  .seg { font-size: 19px; line-height: 1.55; }
+  .seg .spk { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .3px;
+    padding: 2px 9px; border-radius: 9999px; margin-right: 9px; color: #fff; vertical-align: 2px; }
+  .seg.interim { color: rgb(var(--fg) / 0.5); }
+</style>
+</head>
+<body>
+  <div class="brand"><b>voice-gateway</b> · live</div>
+
+  <div class="stage">
+    <!-- IDLE -->
+    <div id="idle" class="btns">
+      <button id="startLive" type="button" class="pill shimmer">
+        <span class="pill-inner">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M19.0518 12.6826L20.9482 13.3174L20.9473 13.3203C20.9467 13.3221 20.9462 13.3247 20.9453 13.3271C20.9436 13.3322 20.9412 13.3389 20.9385 13.3467C20.9329 13.3627 20.9249 13.3852 20.915 13.4121C20.8953 13.4658 20.8666 13.5402 20.8291 13.6328C20.754 13.8183 20.642 14.0772 20.4883 14.3848C20.1819 14.9976 19.7047 15.8173 19.0186 16.6406C17.7807 18.126 15.8326 19.6511 13 19.9473V22H11V19.9473C8.16736 19.6511 6.21926 18.126 4.98145 16.6406C4.2953 15.8173 3.81813 14.9976 3.51172 14.3848C3.35795 14.0772 3.24599 13.8183 3.1709 13.6328C3.13343 13.5402 3.10465 13.4658 3.08496 13.4121C3.07511 13.3852 3.06712 13.3627 3.06152 13.3467C3.0588 13.3389 3.05641 13.3322 3.05469 13.3271C3.05385 13.3247 3.05334 13.3221 3.05273 13.3203L3.05176 13.3184L4.94824 12.6826C4.94854 12.6835 4.9492 12.6846 4.9502 12.6875C4.95253 12.6942 4.95678 12.706 4.96289 12.7227C4.97542 12.7568 4.99559 12.8116 5.02441 12.8828C5.08214 13.0254 5.17333 13.2353 5.30078 13.4902C5.55686 14.0024 5.95474 14.6828 6.51855 15.3594C7.6401 16.7052 9.3811 18 12 18C14.6189 18 16.3599 16.7052 17.4814 15.3594C18.0453 14.6828 18.4431 14.0024 18.6992 13.4902C18.8267 13.2353 18.9179 13.0254 18.9756 12.8828C19.0044 12.8116 19.0246 12.7568 19.0371 12.7227C19.0432 12.706 19.0475 12.6942 19.0498 12.6875C19.0508 12.6846 19.0515 12.6835 19.0518 12.6826Z" fill="currentColor"/><path d="M12 2C14.7614 2 17 4.23858 17 7V11C17 13.7614 14.7614 16 12 16C9.23858 16 7 13.7614 7 11V7C7 4.23858 9.23858 2 12 2Z" fill="currentColor"/></svg>
+          Live transcription
+        </span>
+      </button>
+      <label class="pill plain" for="file">
+        <span class="pill-inner">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 5C4 4.44772 4.44772 4 5 4H19C19.5523 4 20 4.44772 20 5V19C20 19.5523 19.5523 20 19 20H5C4.44772 20 4 19.5523 4 19V5ZM10 8.5V15.5L16 12L10 8.5Z" fill="currentColor"/></svg>
+          Video or audio file
+        </span>
+      </label>
+      <input id="file" type="file" accept="audio/*,video/*" hidden />
+      <label class="toggle"><input type="checkbox" id="diarize" /> Label speakers (live)</label>
+      <a href="#" id="linkLink" class="textlink">Transcribe a YouTube or video link →</a>
+    </div>
+
+    <!-- LINK (paste a URL + optional in/out trim) -->
+    <div id="linkView" class="hidden linkview">
+      <h2 class="lv-title">Transcribe from a link</h2>
+      <input id="url" type="url" class="lv-url" placeholder="Paste a YouTube or video URL" />
+      <div class="trim">
+        <span>In</span>
+        <input id="start" type="text" placeholder="mm:ss" />
+        <span>Out</span>
+        <input id="end" type="text" placeholder="mm:ss" />
+      </div>
+      <p class="lv-hint">Leave trim empty for the whole video, or set a window (e.g. the sermon).</p>
+      <div class="lv-actions">
+        <button id="startLink" type="button" class="pill shimmer"><span class="pill-inner">Start transcription</span></button>
+        <a href="#" id="linkBack" class="textlink">← back</a>
+      </div>
+    </div>
+
+    <!-- ACTIVE (recording / result) -->
+    <div id="active" class="hidden" style="display:flex; flex-direction:column; align-items:center; gap:28px; width:100%;">
+      <div class="textwrap">
+        <p id="hint" class="hint">Listening… speak into your mic</p>
+        <p id="transcript" class="transcript hidden"><span class="committed" id="committed"></span><span class="interim" id="interim"></span></p>
+        <div id="segs" class="segs hidden"></div>
+      </div>
+      <div class="controls">
+        <button id="stop" type="button" class="pill stop">
+          <span class="pill-inner">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 7C5 5.89543 5.89543 5 7 5H17C18.1046 5 19 5.89543 19 7V17C19 18.1046 18.1046 19 17 19H7C5.89543 19 5 18.1046 5 17V7Z" fill="currentColor"/></svg>
+            Stop
+          </span>
+        </button>
+        <button id="reset" type="button" class="pill plain hidden">
+          <span class="pill-inner">New transcription</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+<script type="module">
+  // ALL voice logic comes from the kit. This page only maps state → DOM + styles.
+  import { createLiveTranscriber, transcribeFile, transcribeUrl } from "/kit/browser.js";
+
+  const el = (id) => document.getElementById(id);
+  const idle = el("idle"), active = el("active"), linkView = el("linkView");
+  const hintEl = el("hint"), transcriptEl = el("transcript"), segsEl = el("segs");
+  const committedEl = el("committed"), interimEl = el("interim");
+  const stopBtn = el("stop"), resetBtn = el("reset"), diarizeEl = el("diarize");
+
+  const SPEAKER_COLORS = ["#5f70c8", "#379B94", "#B14FC8", "#3E7DD2", "#e5a24d", "#e5484d"];
+  let live = null;      // created per session (diarize can change between runs)
+  let diarizeOn = false;
+
+  el("startLive").addEventListener("click", () => {
+    diarizeOn = diarizeEl.checked;
+    showActive();
+    live = createLiveTranscriber({ url: "/ws/stream", language: "en", diarize: diarizeOn });
+    live.subscribe(render);
+    live.start();
+  });
+  el("file").addEventListener("change", (e) => { if (e.target.files[0]) upload(e.target.files[0]); });
+  el("linkLink").addEventListener("click", (e) => { e.preventDefault(); showLink(); });
+  el("linkBack").addEventListener("click", (e) => { e.preventDefault(); showIdle(); });
+  el("startLink").addEventListener("click", () => {
+    const link = el("url").value.trim();
+    if (link) fromUrl(link);
+  });
+  stopBtn.addEventListener("click", () => live && live.stop());
+  resetBtn.addEventListener("click", reset);
+
+  function showLink() { idle.classList.add("hidden"); linkView.classList.remove("hidden"); el("url").focus(); }
+  function showIdle() {
+    active.classList.add("hidden"); linkView.classList.add("hidden"); idle.classList.remove("hidden");
+  }
+  function showActive() {
+    idle.classList.add("hidden"); linkView.classList.add("hidden"); active.classList.remove("hidden");
+    stopBtn.classList.remove("hidden"); resetBtn.classList.add("hidden");
+  }
+  function setHint(text, isErr) {
+    hintEl.textContent = text; hintEl.classList.toggle("err", !!isErr);
+    hintEl.classList.remove("hidden"); transcriptEl.classList.add("hidden"); segsEl.classList.add("hidden");
+  }
+  function showText(committed, interim) {
+    hintEl.classList.add("hidden"); segsEl.classList.add("hidden");
+    transcriptEl.classList.remove("hidden");
+    committedEl.textContent = committed;
+    interimEl.textContent = interim ? (committed ? " " : "") + interim : "";
+  }
+  function asFinished() { stopBtn.classList.add("hidden"); resetBtn.classList.remove("hidden"); }
+
+  function speakerChip(n) {
+    const chip = document.createElement("span");
+    chip.className = "spk";
+    chip.textContent = "Speaker " + (n + 1);
+    chip.style.background = SPEAKER_COLORS[n % SPEAKER_COLORS.length];
+    return chip;
+  }
+  function renderSegments(s) {
+    hintEl.classList.add("hidden"); transcriptEl.classList.add("hidden");
+    segsEl.classList.remove("hidden");
+    segsEl.replaceChildren();
+    for (const seg of s.segments) {
+      const row = document.createElement("div");
+      row.className = "seg";
+      if (seg.speaker != null) row.appendChild(speakerChip(seg.speaker));
+      row.appendChild(document.createTextNode(seg.text));
+      segsEl.appendChild(row);
+    }
+    if (s.interim) {
+      const row = document.createElement("div");
+      row.className = "seg interim";
+      if (s.interimSpeaker != null) row.appendChild(speakerChip(s.interimSpeaker));
+      row.appendChild(document.createTextNode(s.interim));
+      segsEl.appendChild(row);
+    }
+  }
+
+  // Map the kit's TranscriberState to the UI.
+  function render(s) {
+    if (s.status === "error") { setHint(s.error || "Error", true); asFinished(); return; }
+    const hasContent = s.text || s.segments.length;
+    if (diarizeOn && hasContent) renderSegments(s);
+    else if (s.text) showText(s.committed, s.interim);
+    else if (s.status === "recording" || s.status === "connecting") setHint("Listening… speak into your mic");
+    if (s.status === "stopped") { if (!hasContent) setHint("No speech detected."); asFinished(); }
+  }
+
+  function trim() {
+    const start = el("start").value.trim() || undefined;
+    const end = el("end").value.trim() || undefined;
+    return { start, end };
+  }
+
+  async function upload(file) {
+    diarizeOn = false; // batch endpoint returns plain text
+    showActive();
+    stopBtn.classList.add("hidden"); resetBtn.classList.add("hidden");
+    setHint("Extracting & transcribing “" + file.name + "”…");
+    try {
+      const r = await transcribeFile(file, { url: "/api/transcribe", language: "en" });
+      showText(r.text, "");
+    } catch (e) { setHint(e.message, true); }
+    resetBtn.classList.remove("hidden");
+  }
+
+  async function fromUrl(link) {
+    diarizeOn = false;
+    showActive();
+    stopBtn.classList.add("hidden"); resetBtn.classList.add("hidden");
+    setHint("Fetching & transcribing the link… (can take a bit for long videos)");
+    try {
+      const r = await transcribeUrl(link, { url: "/api/transcribe-url", language: "en", ...trim() });
+      showText(r.text, "");
+    } catch (e) { setHint(e.message, true); }
+    resetBtn.classList.remove("hidden");
+  }
+
+  function reset() {
+    committedEl.textContent = ""; interimEl.textContent = ""; segsEl.replaceChildren();
+    el("file").value = ""; el("url").value = "";
+    el("start").value = ""; el("end").value = "";
+    showIdle();
+  }
+</script>
+</body>
+</html>

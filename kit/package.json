@@ -1,0 +1,26 @@
+{
+  "name": "@noba/voice-kit",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Reusable voice transcription for apps talking to voice-gateway: live mic streaming + file upload (browser), a React hook, and backend proxy helpers.",
+  "exports": {
+    "./browser": {
+      "types": "./src/browser.d.ts",
+      "import": "./src/browser.js"
+    },
+    "./react": "./src/react.ts",
+    "./server": "./src/server.ts"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "files": ["src"]
+}
